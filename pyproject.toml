@@ -15,6 +15,14 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+  "numpy",
+  "torch",
+  "pypose",
+  "viser",
+  "trimesh",
+  
+]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
