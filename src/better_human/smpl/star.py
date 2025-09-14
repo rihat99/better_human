@@ -58,40 +58,6 @@ class STAR(SMPLBase):
             [9, 14], [14, 17], [17, 19], [19, 21], [21, 23]
         ]
 
-    def forward(self, betas: torch.Tensor, body_pose: pp.LieTensor, global_transform: pp.LieTensor, **kwargs) -> dict:
-        """
-        Runs the full forward pass for the SMPL model.
-
-        """
-
-        batch_size = betas.shape[0]
-
-        # 1. Shape deformation and joint locations
-        neutral_vertices, neutral_joints = self.forward_shape(betas)
-
-        # 2. Pose deformation
-        vertices_blended = self.blend_shape(body_pose, neutral_vertices, betas) # (B, 6890, 3)
-
-        # 3. Compute global joint transformations
-        world_transforms, parent_transforms = self.forward_skeleton(global_transform, body_pose, neutral_joints)
-
-        # 4. Linear Blend Skinning (optimized)
-        vertices_delta = torch.ones((batch_size, 6890, self.num_joints, 4), device=self.device) # (B, 6890, 24, 4)
-        vertices_delta[:, :, :, :3] = vertices_blended[:, :, None, :] - neutral_joints[:, None, :, :]  # (B, 6890, 24, 4) 
-
-        vertices_posed = torch.einsum(
-            'bjxy, vj, bvjy -> bvx', 
-            world_transforms[:, :, :3, :],
-            self.lbs_weights,
-            vertices_delta
-        ) # (B, 6890, 3)
-
-        return SMPLOutputs(
-            vertices=vertices_posed, # (B, 6890, 3)
-            joints_world=pp.mat2SE3(world_transforms),  # (B, 24, 7)
-            joints_parent=pp.mat2SE3(parent_transforms) # (B, 24, 7)
-        )
-
     def forward_shape(self, betas: torch.Tensor) -> torch.Tensor:
         """
         Computes the shape-deformed vertices given shape parameters.
@@ -109,7 +75,7 @@ class STAR(SMPLBase):
 
         return neutral_vertices, neutral_joints
     
-    def blend_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas) -> torch.Tensor:
+    def deform_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas) -> torch.Tensor:
         batch_size = body_pose.shape[0]
 
         pose_quat = body_pose.tensor()  # (B, 23, 4)

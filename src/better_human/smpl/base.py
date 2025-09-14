@@ -27,7 +27,6 @@ class SMPLBase(Humanoid):
     def __init__(self, model_path: str, gender: str = 'neutral', device: torch.device = None):
         super().__init__()
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._load_model_data(model_path)
 
         self.gender = gender
 
@@ -39,6 +38,8 @@ class SMPLBase(Humanoid):
 
         self.num_joints = 24  # Default for SMPL, can be overridden in child classes
 
+        self._load_model_data(model_path)
+
     @abstractmethod
     def _load_model_data(self, model_path: str):
         """
@@ -47,13 +48,29 @@ class SMPLBase(Humanoid):
         """
         pass
 
-    @abstractmethod
-    def forward(self, *args, **kwargs) -> dict:
+    def forward(self, betas: torch.Tensor, body_pose: pp.LieTensor, global_transform: pp.LieTensor, **kwargs) -> dict:
         """
-        The main forward pass for the model.
-        Must be implemented by child classes (e.g., SMPL, SMPLH).
+        Runs the full forward pass for the SMPL model.
+
         """
-        pass
+
+        # 1. Shape deformation and joint locations
+        neutral_vertices, neutral_joints = self.forward_shape(betas)
+
+        # 2. Pose deformation
+        vertices_blended = self.deform_shape(body_pose, neutral_vertices, betas) # (B, 6890, 3)
+
+        # 3. Compute global joint transformations
+        world_transforms, parent_transforms = self.forward_skeleton(global_transform, body_pose, neutral_joints)
+
+        # 4. Linear Blend Skinning (optimized)
+        vertices_posed = self.linear_blend_skinning(vertices_blended, world_transforms, neutral_joints)
+
+        return SMPLOutputs(
+            vertices=vertices_posed, # (B, 6890, 3)
+            joints_world=pp.mat2SE3(world_transforms),  # (B, 24, 7)
+            joints_parent=pp.mat2SE3(parent_transforms) # (B, 24, 7)
+        )
 
     def forward_skeleton(self, root_transform: pp.LieTensor, body_pose: pp.LieTensor, neutral_joints: torch.Tensor) -> torch.Tensor:
         """
@@ -96,6 +113,41 @@ class SMPLBase(Humanoid):
         Must be implemented by child classes.
         """
         pass
+
+    @abstractmethod
+    def deform_shape(self, *args, **kwargs) -> torch.Tensor:
+        """
+        Computes the pose-deformed vertices given pose parameters.
+        Must be implemented by child classes.
+        """
+        pass
+
+    def linear_blend_skinning(self, vertices: torch.Tensor, world_transforms: torch.Tensor, neutral_joints: torch.Tensor) -> torch.Tensor:
+        """
+        Applies Linear Blend Skinning (LBS) to deform the mesh vertices
+        based on the global joint transformations.
+
+        Args:
+            vertices (torch.Tensor): The shape-deformed vertices (B, V, 3).
+            world_transforms (torch.Tensor): Global joint transformations (B, J, 4, 4).
+            neutral_joints (torch.Tensor): Joint locations from the shaped mesh (B, J, 3).
+
+        Returns:
+            torch.Tensor: The posed vertices after LBS (B, V, 3).
+        """
+        batch_size = vertices.shape[0]
+        
+        vertices_delta = torch.ones((batch_size, 6890, self.num_joints, 4), device=self.device) # (B, V, J, 4)
+        vertices_delta[:, :, :, :3] = vertices[:, :, None, :] - neutral_joints[:, None, :, :]  # (B, V, J, 4) 
+
+        vertices_posed = torch.einsum(
+            'bjxy, vj, bvjy -> bvx', 
+            world_transforms[:, :, :3, :],
+            self.lbs_weights,
+            vertices_delta
+        ) # (B, V, 3)
+
+        return vertices_posed
 
     def forward_kinematics(self, *args, **kwargs) -> dict:
         """
