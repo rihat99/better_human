@@ -4,11 +4,11 @@ import viser
 
 import torch
 import pypose as pp
-# ... (other imports)
-from .base import SMPLBase, SMPLOutputs
-# from ..utils.lbs import linear_blend_skinning
 
-class SMPL(SMPLBase):
+from .base import SMPLBase, SMPLOutputs
+
+
+class STAR(SMPLBase):
     """
     A concrete implementation of the original SMPL model.
     """
@@ -19,34 +19,34 @@ class SMPL(SMPLBase):
 
     def _load_model_data(self, model_path: str):
         """
-        Loads the SMPL model data from a .pkl file.
+        Loads the STAR model data from a .npz file.
         """
-        smpl_data = np.load(model_path, allow_pickle=True)
+        star_data = np.load(model_path, allow_pickle=True)
 
         # Register model parameters as buffers
-        self.register_buffer('vertices_template', torch.tensor(smpl_data['vertices_template'], dtype=torch.float32)) # (6890, 3)
+        self.register_buffer('vertices_template', torch.tensor(star_data['v_template'], dtype=torch.float32)) # (6890, 3)
         
         # Faces are not used in computation but are essential for visualization
-        self.register_buffer('faces', torch.tensor(smpl_data['faces'].astype(np.int64), dtype=torch.long)) # (13776, 3)
+        self.register_buffer('faces', torch.tensor(star_data['f'].astype(np.int64), dtype=torch.long)) # (13776, 3)
 
         # Shape blend shapes
-        shape_blending = torch.tensor(smpl_data['shape_blending'][:, :, :self.num_betas], dtype=torch.float32)
+        shape_blending = torch.tensor(star_data['shapedirs'][:, :, :self.num_betas], dtype=torch.float32)
         self.register_buffer('shape_blending', shape_blending)   # (6890, 3, num_betas)
 
         # Pose blend shapes
-        # Original shape is (6890, 3, 207). Reshape to (6890*3, 207)
-        pose_blending = torch.tensor(smpl_data['pose_blending'], dtype=torch.float32).reshape(-1, 23*9).T
+        # Original shape is (6890, 3, 93). Reshape to (6890*3, 93)
+        pose_blending = torch.tensor(star_data['posedirs'], dtype=torch.float32).reshape(-1, 93)
         # We need ( (J-1)*9, V*3 ) for matmul, so we transpose
-        self.register_buffer('pose_blending', pose_blending) # (207, 6890*3)
+        self.register_buffer('pose_blending', pose_blending) # (6870*3, 93)
 
         # Joint regressor
-        self.register_buffer('joint_regressor', torch.tensor(smpl_data['joint_regressor'], dtype=torch.float32)) # (24, 6890)
+        self.register_buffer('joint_regressor', torch.tensor(star_data['J_regressor'], dtype=torch.float32)) # (24, 6890)
 
         # LBS weights
-        self.register_buffer('lbs_weights', torch.tensor(smpl_data['weights'], dtype=torch.float32)) # (6890, 24)
+        self.register_buffer('lbs_weights', torch.tensor(star_data['weights'], dtype=torch.float32)) # (6890, 24)
 
         # Kinematic tree
-        self.parent_tree = smpl_data['kintree_table']
+        self.parent_tree = star_data['kintree_table']
 
         # Define number of joints based on loaded data
         self.num_joints = 24
@@ -70,7 +70,7 @@ class SMPL(SMPLBase):
         neutral_vertices, neutral_joints = self.forward_shape(betas)
 
         # 2. Pose deformation
-        vertices_blended = self.blend_shape(body_pose, neutral_vertices) # (B, 6890, 3)
+        vertices_blended = self.blend_shape(body_pose, neutral_vertices, betas) # (B, 6890, 3)
 
         # 3. Compute global joint transformations
         world_transforms, parent_transforms = self.forward_skeleton(global_transform, body_pose, neutral_joints)
@@ -109,15 +109,19 @@ class SMPL(SMPLBase):
 
         return neutral_vertices, neutral_joints
     
-    def blend_shape(self, body_pose: pp.LieTensor, neutral_vertices) -> torch.Tensor:
+    def blend_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas) -> torch.Tensor:
         batch_size = body_pose.shape[0]
 
-        # Convert body_pose (B, 23, 4) to rotation matrices (B, 23, 3, 3)
-        pose_mats = body_pose.matrix()
-        pose_features = pose_mats - torch.eye(3, device=self.device)
-        pose_features = pose_features.reshape(-1, 23*9) # (B, 207)
-        # pose_offsets = torch.einsum('bi, ij -> bj', pose_features, self.pose_blending) # (B, 6890*3)
-        pose_offsets = (pose_features @ self.pose_blending).view(batch_size, -1, 3)  # (B, 6890, 3)
+        pose_quat = body_pose.tensor()  # (B, 23, 4)
+        w_ones = torch.zeros_like(pose_quat, device=self.device, dtype=pose_quat.dtype)  # (B, 23, 4)
+        w_ones[..., 3] = 1.0  # Set the last element to 1.0
+        pose_quat = pose_quat - w_ones # Normalize the quaternion to have w = 0 at rest
+
+        pose_quat = pose_quat.reshape(-1, 23 * 4)  # (B, 23 * 4)
+        pose_feat = torch.cat((pose_quat, betas[:, 1:2]), dim=1)  # (B, 23*4+1 = 93)
+
+        pose_offsets = torch.einsum('ij,bj->bi', self.pose_blending, pose_feat)  # (B, 6890*3)
+        pose_offsets = pose_offsets.view(batch_size, -1, 3)  # (B, 6890, 3)
 
         vertices_blended = neutral_vertices + pose_offsets # (B, 6890, 3)
 

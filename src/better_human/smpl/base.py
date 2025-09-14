@@ -1,8 +1,20 @@
 import torch
 import pypose as pp
+import viser
+import numpy as np
+
+
 from abc import abstractmethod
 from ..core.humanoid import Humanoid
 from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SMPLOutputs:
+    vertices: torch.Tensor  # (B, V, 3)
+    joints_world: pp.LieTensor  # (B, J, 7)
+    joints_parent: pp.LieTensor  # (B, J, 7)
+
 
 class SMPLBase(Humanoid):
     """
@@ -103,14 +115,55 @@ class SMPLBase(Humanoid):
         # raise NotImplementedError("IK for SMPL models is typically an optimization problem.")
         
         
-    def visualize(self, *args, **kwargs):
-        print("Visualizing SMPL model...")
-        # Your visualization logic using libraries like PyVista or Open3D
-        pass
+    def visualize(
+            self, 
+            server: viser._viser.ViserServer, 
+            output: SMPLOutputs, 
+            prefix: str = "/smpl",
+            show_joints: bool = True,
+            show_mesh: bool = True,
+            show_skeleton: bool = True,
+            mesh_color: tuple = (10, 220, 30),
+            wireframe=True,
+            ):
+        
+        """
+        Visualizes the SMPL output using the provided VisER server.
+        Args:
+            server (viser._viser.ViserServer): The VisER server instance for visualization.
+            output (dict): The output dictionary from the forward pass containing 'vertices' and 'joints'.
+            prefix (str): Prefix for naming the visualized elements.
+            show_joints (bool): Whether to visualize joints.
+            show_mesh (bool): Whether to visualize the mesh.
+            show_skeleton (bool): Whether to visualize the skeleton.
+            mesh_color (tuple): Color for the mesh visualization.
+            wireframe (bool): Whether to render the mesh in wireframe mode.
+        """
 
+        if show_mesh:
+            server.scene.add_mesh_simple(
+                name=f"{prefix}/mesh",
+                vertices=output.vertices[0].cpu().numpy(),
+                faces=self.faces.cpu().numpy().astype(np.int32),
+                color=mesh_color,
+                opacity=1.0,
+                wireframe=wireframe,
+            )
+            if wireframe:
+                server.scene.add_mesh_simple(
+                    name=f"{prefix}/mesh_opacity",
+                    vertices=output.vertices[0].cpu().numpy(),
+                    faces=self.faces.cpu().numpy().astype(np.int32),
+                    color=mesh_color,
+                    opacity=0.4,
+                )
 
-@dataclass(frozen=True)
-class SMPLOutputs:
-    vertices: torch.Tensor  # (B, 6890, 3)
-    joints_world: pp.LieTensor  # (B, 24, 7)
-    joints_parent: pp.LieTensor  # (B, 24, 7)
+        if show_joints:
+            for i in range(self.num_joints):
+                server.scene.add_icosphere(
+                    name=f"/smpl/joints/{i}",
+                    radius=0.02,
+                    color=(255, 0, 0),
+                    position=output.joints_world.tensor()[0, i, :3].cpu().numpy()
+                )
+
