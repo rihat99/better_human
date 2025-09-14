@@ -6,7 +6,7 @@ import torch
 import pypose as pp
 # ... (other imports)
 from .base import SMPLBase, SMPLOutputs
-from ..utils.lbs import linear_blend_skinning
+# from ..utils.lbs import linear_blend_skinning
 
 class SMPL(SMPLBase):
     """
