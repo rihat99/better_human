@@ -8,12 +8,12 @@ def process_smpl(file_path):
 
     new_data = {}
     new_data["faces"] = np.array(data['f'])
-    new_data["vertice_template"] = np.array(data['v_template'])
+    new_data["vertices_template"] = np.array(data['v_template'])
     new_data["shape_blending"] = np.array(data['shapedirs'])
     new_data["pose_blending"] = np.array(data['posedirs'])
     new_data["joint_template"] = np.array(data['J'])
     new_data["joint_regressor"] = np.array(data['J_regressor'].toarray())
-    new_data["kintree_table"] = np.array(data['kintree_table'])
+    new_data["kintree_table"] = np.array(data['kintree_table']).astype(np.int32)
     new_data["weights"] = np.array(data['weights'])
     new_data["blending_skinning_type"] = str(data["bs_type"])
     new_data["blending_skinning_style"] = str(data["bs_style"])
