@@ -37,6 +37,7 @@ class SMPLBase(Humanoid):
         # self.body_pose = torch.nn.Parameter(torch.zeros(1, self.num_joints * 3, device=self.device)) # Axis-angle
 
         self.num_joints = 24  # Default for SMPL, can be overridden in child classes
+        self.num_vertices = 6890  # Default for SMPL, can be overridden in child classes
 
         self._load_model_data(model_path)
 
@@ -137,7 +138,7 @@ class SMPLBase(Humanoid):
         """
         batch_size = vertices.shape[0]
         
-        vertices_delta = torch.ones((batch_size, 6890, self.num_joints, 4), device=self.device) # (B, V, J, 4)
+        vertices_delta = torch.ones((batch_size, self.num_vertices, self.num_joints, 4), device=self.device) # (B, V, J, 4)
         vertices_delta[:, :, :, :3] = vertices[:, :, None, :] - neutral_joints[:, None, :, :]  # (B, V, J, 4) 
 
         vertices_posed = torch.einsum(
@@ -176,6 +177,8 @@ class SMPLBase(Humanoid):
             show_mesh: bool = True,
             show_skeleton: bool = True,
             mesh_color: tuple = (10, 220, 30),
+            joint_color: tuple = (255, 0, 0),
+            joint_radius: float = 0.02,
             wireframe=True,
             ):
         
@@ -214,8 +217,8 @@ class SMPLBase(Humanoid):
             for i in range(self.num_joints):
                 server.scene.add_icosphere(
                     name=f"/smpl/joints/{i}",
-                    radius=0.02,
-                    color=(255, 0, 0),
+                    radius=joint_radius,
+                    color=joint_color,
                     position=output.joints_world.tensor()[0, i, :3].cpu().numpy()
                 )
 

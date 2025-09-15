@@ -20,6 +20,28 @@ def process_smpl(file_path):
 
     return new_data
 
+
+def process_mano(file_path):
+    data = pickle.load(open(file_path, 'rb'), encoding='latin1')
+
+    new_data = {}
+    new_data["faces"] = np.array(data['f'])
+    new_data["vertices_template"] = np.array(data['v_template'])
+    new_data["shape_blending"] = np.array(data['shapedirs'])
+    new_data["pose_blending"] = np.array(data['posedirs'])
+    new_data["joint_template"] = np.array(data['J'])
+    new_data["joint_regressor"] = np.array(data['J_regressor'].toarray())
+    new_data["kintree_table"] = np.array(data['kintree_table']).astype(np.int32)
+    new_data["weights"] = np.array(data['weights'])
+    new_data["blending_skinning_type"] = str(data["bs_type"])
+    new_data["blending_skinning_style"] = str(data["bs_style"])
+    
+    new_data["hands_components"] = np.array(data['hands_components'])
+    new_data["hands_mean"] = np.array(data['hands_mean'])
+    new_data["hands_coeffs"] = np.array(data['hands_coeffs'])
+
+    return new_data
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, required=True, help='Type of the model')
@@ -30,6 +52,11 @@ def main():
     if str(args.model).lower() == 'smpl':
         new_data = process_smpl(args.file)
         print("Processed SMPL")
+        np.savez(args.save, **new_data)
+        print(f"Saved to {args.save}")
+    elif str(args.model).lower() == 'mano':
+        new_data = process_mano(args.file)
+        print("Processed MANO")
         np.savez(args.save, **new_data)
         print(f"Saved to {args.save}")
     else:
