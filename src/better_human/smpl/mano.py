@@ -72,7 +72,7 @@ class MANO(SMPLBase):
             self.register_buffer('hands_mean', torch.zeros((15, 3), dtype=torch.float32)) # (15, 3)
         else:
             self.register_buffer('hands_mean', torch.tensor(mano_data['hands_mean'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
-        self.register_buffer('hands_coeffs', torch.tensor(mano_data['hands_coeffs'], dtype=torch.float32)) # (1554, 45)
+        # self.register_buffer('hands_coeffs', torch.tensor(mano_data['hands_coeffs'], dtype=torch.float32)) # (1554, 45)
 
         # Define number of joints based on loaded data
         self.num_joints = 16
