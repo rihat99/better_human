@@ -107,21 +107,35 @@ class SMPLBase(Humanoid):
 
         return world_transforms, parent_transforms
 
-    @abstractmethod
-    def forward_shape(self, *args, **kwargs) -> torch.Tensor:
+    def forward_shape(self, betas: torch.Tensor) -> torch.Tensor:
         """
-        Computes the shaped mesh vertices after skeleton is posed.
-        Must be implemented by child classes.
-        """
-        pass
+        Computes the shape-deformed vertices given shape parameters.
 
-    @abstractmethod
-    def deform_shape(self, *args, **kwargs) -> torch.Tensor:
+        Args:
+            betas (torch.Tensor): Shape parameters (B, num_betas).
+        Returns:
+            torch.Tensor: Shape-deformed vertices (B, V, 3).
         """
-        Computes the pose-deformed vertices given pose parameters.
-        Must be implemented by child classes.
-        """
-        pass
+        # 1. Shape deformation
+        neutral_vertices = self.vertices_template + torch.einsum('vij, bj -> bvi', self.shape_blending, betas) # (B, V, 3)
+
+        # 2. Joint locations
+        neutral_joints = torch.einsum('jv, bvi -> bji', self.joint_regressor, neutral_vertices) # (B, J, 3)
+
+        return neutral_vertices, neutral_joints
+
+    def deform_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas=None) -> torch.Tensor:
+        batch_size = body_pose.shape[0]
+
+        # Convert body_pose (B, J-1, 4) to rotation matrices (B, J-1, 3, 3)
+        pose_mats = body_pose.matrix()
+        pose_features = pose_mats - torch.eye(3, device=self.device)
+        pose_features = pose_features.reshape(-1, (self.num_joints-1)*9) # (B, (J-1)*9)
+        pose_offsets = (pose_features @ self.pose_blending).view(batch_size, -1, 3)  # (B, V, 3)
+
+        vertices_blended = neutral_vertices + pose_offsets # (B, V, 3)
+
+        return vertices_blended
 
     def linear_blend_skinning(self, vertices: torch.Tensor, world_transforms: torch.Tensor, neutral_joints: torch.Tensor) -> torch.Tensor:
         """

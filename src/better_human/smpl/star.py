@@ -58,23 +58,6 @@ class STAR(SMPLBase):
             [9, 14], [14, 17], [17, 19], [19, 21], [21, 23]
         ]
 
-    def forward_shape(self, betas: torch.Tensor) -> torch.Tensor:
-        """
-        Computes the shape-deformed vertices given shape parameters.
-
-        Args:
-            betas (torch.Tensor): Shape parameters (B, num_betas).
-        Returns:
-            torch.Tensor: Shape-deformed vertices (B, 6890, 3).
-        """
-        # 1. Shape deformation
-        neutral_vertices = self.vertices_template + torch.einsum('vij, bj -> bvi', self.shape_blending, betas) # (B, 6890, 3)
-
-        # 2. Joint locations
-        neutral_joints = torch.einsum('jv, bvi -> bji', self.joint_regressor, neutral_vertices) # (B, 24, 3)
-
-        return neutral_vertices, neutral_joints
-    
     def deform_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas) -> torch.Tensor:
         batch_size = body_pose.shape[0]
 
