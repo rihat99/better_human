@@ -29,3 +29,6 @@ license-files = ["LICEN[CS]E*"]
 [project.urls]
 Homepage = "https://github.com/rihat99/better_human"
 Issues = "https://github.com/rihat99/better_human/issues"
+
+[tool.setuptools.package-data]
+"better_human.smpl.config" = ["*.yaml"]

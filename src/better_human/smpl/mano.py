@@ -1,6 +1,7 @@
 import pickle
 import numpy as np
-import viser
+import json
+from importlib import resources
 
 import torch
 import pypose as pp
@@ -32,8 +33,6 @@ class MANO(SMPLBase):
         # `super().__init__` will call `_load_model_data` internally
         super().__init__(model_path=model_path, **kwargs)
 
-        self.num_joints = 16  # MANO has 16 joints
-        self.num_vertices = 778  # MANO has 778 vertices
 
     def _load_model_data(self, model_path: str):
         """
@@ -74,15 +73,11 @@ class MANO(SMPLBase):
             self.register_buffer('hands_mean', torch.tensor(mano_data['hands_mean'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
         # self.register_buffer('hands_coeffs', torch.tensor(mano_data['hands_coeffs'], dtype=torch.float32)) # (1554, 45)
 
-        # Define number of joints based on loaded data
-        self.num_joints = 16
-
-        # self.joint_links = [
-        #     [0, 1], [0, 2], [1, 4], [4, 7], [7, 10], [2, 5], [5, 8], [8, 11],
-        #     [0, 3], [3, 6], [6, 9], [9, 12], [12, 15],
-        #     [9, 13], [13, 16], [16, 18], [18, 20], [20, 22],
-        #     [9, 14], [14, 17], [17, 19], [19, 21], [21, 23]
-        # ]
+        # load config as class attributes
+        with resources.files('better_human.smpl.config').joinpath('mano.json').open('r') as f:
+            config = json.load(f)
+        for key, value in config.items():
+            setattr(self, key, value)
 
     
     def forward(self, hand_pose: torch.Tensor, global_transform: pp.LieTensor, betas: torch.Tensor = None, **kwargs) -> SMPLOutputs:

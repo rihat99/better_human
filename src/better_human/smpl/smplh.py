@@ -1,6 +1,8 @@
 import pickle
 import numpy as np
-import viser
+import json
+from importlib import resources
+
 
 import torch
 import pypose as pp
@@ -24,15 +26,15 @@ class SMPLH(SMPLBase):
             **kwargs):
         
         self.num_betas = num_betas
+        self.gender = gender
         self.use_pca = use_pca
         self.num_pca_components = num_pca_components
         if num_pca_components == 45:
             self.use_pca = False  # Override to use full pose if 45 components are requested
         self.flat_hand_mean = flat_hand_mean
-        # `super().__init__` will call `_load_model_data` internally
-        super().__init__(model_path=model_path, gender=gender, **kwargs)
 
-        self.num_joints = 52  # SMPL-H has 52 joints (24 body + 15 left hand + 15 right hand - 2 overlap)
+        # `super().__init__` will call `_load_model_data` internally
+        super().__init__(model_path=model_path, **kwargs)
 
     def _load_model_data(self, model_path: str):
         smplh_data = pickle.load(open(model_path, 'rb'), encoding='latin1')
@@ -72,6 +74,13 @@ class SMPLH(SMPLBase):
 
         self.register_buffer('hand_components_left', torch.tensor(smplh_data['hands_componentsl'], dtype=torch.float32)) # (45, 45)
         self.register_buffer('hand_components_right', torch.tensor(smplh_data['hands_componentsr'], dtype=torch.float32)) # (45, 45)
+
+
+        # load config as class attributes
+        with resources.files('better_human.smpl.config').joinpath('smplh.json').open('r') as f:
+            config = json.load(f)
+        for key, value in config.items():
+            setattr(self, key, value)
 
 
     def forward(

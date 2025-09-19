@@ -1,6 +1,8 @@
 import pickle
 import numpy as np
-import viser
+import json
+from importlib import resources
+
 
 import torch
 import pypose as pp
@@ -14,8 +16,10 @@ class STAR(SMPLBase):
     """
     def __init__(self, model_path: str, gender: str = 'neutral', num_betas: int = 10, **kwargs):
         self.num_betas = num_betas
+        self.gender = gender
+
         # `super().__init__` will call `_load_model_data` internally
-        super().__init__(model_path=model_path, gender=gender, **kwargs)
+        super().__init__(model_path=model_path, **kwargs)
 
     def _load_model_data(self, model_path: str):
         """
@@ -49,14 +53,11 @@ class STAR(SMPLBase):
         self.parent_tree = star_data['kintree_table']
 
         # Define number of joints based on loaded data
-        self.num_joints = 24
-
-        self.joint_links = [
-            [0, 1], [0, 2], [1, 4], [4, 7], [7, 10], [2, 5], [5, 8], [8, 11],
-            [0, 3], [3, 6], [6, 9], [9, 12], [12, 15], 
-            [9, 13], [13, 16], [16, 18], [18, 20], [20, 22],
-            [9, 14], [14, 17], [17, 19], [19, 21], [21, 23]
-        ]
+        # load config as class attributes
+        with resources.files('better_human.smpl.config').joinpath('smpl.json').open('r') as f:
+            config = json.load(f)
+        for key, value in config.items():
+            setattr(self, key, value)
 
     def deform_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas) -> torch.Tensor:
         batch_size = body_pose.shape[0]
@@ -75,14 +76,3 @@ class STAR(SMPLBase):
         vertices_blended = neutral_vertices + pose_offsets # (B, 6890, 3)
 
         return vertices_blended
-
-    @property
-    def joint_names(self) -> list[str]:
-        # Standard SMPL joint names
-        return [
-            'pelvis', 'left_hip', 'right_hip', 'spine1', 'left_knee', 'right_knee',
-            'spine2', 'left_ankle', 'right_ankle', 'spine3', 'left_foot', 'right_foot',
-            'neck', 'left_collar', 'right_collar', 'head', 'left_shoulder',
-            'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist',
-            'left_hand', 'right_hand'
-        ]

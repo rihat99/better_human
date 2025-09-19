@@ -24,11 +24,9 @@ class SMPLBase(Humanoid):
     specific to the Skinned Multi-Person Linear (SMPL) model family,
     such as shape (betas) and pose (pose) parameters.
     """
-    def __init__(self, model_path: str, gender: str = 'neutral', device: torch.device = None):
+    def __init__(self, model_path: str, device: torch.device = None):
         super().__init__()
         self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.gender = gender
 
         # Define core SMPL parameters
         # These would be initialized based on the loaded model data
@@ -36,10 +34,9 @@ class SMPLBase(Humanoid):
         # self.global_orient = torch.nn.Parameter(torch.zeros(1, 3, device=self.device)) # Axis-angle
         # self.body_pose = torch.nn.Parameter(torch.zeros(1, self.num_joints * 3, device=self.device)) # Axis-angle
 
-        self.num_joints = 24  # Default for SMPL, can be overridden in child classes
-        self.num_vertices = 6890  # Default for SMPL, can be overridden in child classes
-
         self._load_model_data(model_path)
+
+   
 
     @abstractmethod
     def _load_model_data(self, model_path: str):
@@ -47,7 +44,14 @@ class SMPLBase(Humanoid):
         Loads the specific SMPL model data (e.g., templates, blend shapes)
         from a file.
         """
-        pass
+        
+        self.num_joints = 0
+        self.num_vertices = 0
+        self.num_faces = 0
+        self.num_betas = 0
+        self.joint_names = []
+        self.frame_names = []
+        self.frames_vertex_ids = []
 
     def forward(self, betas: torch.Tensor, body_pose: pp.LieTensor, global_transform: pp.LieTensor, **kwargs) -> dict:
         """
@@ -180,7 +184,6 @@ class SMPLBase(Humanoid):
     # but you could implement an optimization-based version here.
     # def inverse_kinematics(self, *args, **kwargs):
         # raise NotImplementedError("IK for SMPL models is typically an optimization problem.")
-        
         
     def visualize(
             self, 

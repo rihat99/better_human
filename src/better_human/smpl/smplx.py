@@ -1,6 +1,7 @@
 import pickle
 import numpy as np
-import viser
+import json
+from importlib import resources
 
 import torch
 import pypose as pp
@@ -25,16 +26,16 @@ class SMPLX(SMPLBase):
     ):
         
         self.num_betas = num_betas
+        self.gender = gender
         self.use_pca = use_pca
         self.num_pca_components = num_pca_components
         if num_pca_components == 45:
             self.use_pca = False  # Override to use full pose if 45 components are requested
         self.flat_hand_mean = flat_hand_mean
+
         # `super().__init__` will call `_load_model_data` internally
         super().__init__(model_path)
 
-        self.num_joints = 55  # SMPL-X has 55 joints (24 body + 15 left hand + 15 right hand + 3 face - 2 overlap)
-        self.num_vertices = 10475  # SMPL-X has 10475 vertices
 
 
     def _load_model_data(self, model_path: str):
@@ -79,6 +80,13 @@ class SMPLX(SMPLBase):
 
         # Face related parameters
         # TODO: Implement face deformation handling
+
+
+        # load config as class attributes
+        with resources.files('better_human.smpl.config').joinpath('smplx.json').open('r') as f:
+            config = json.load(f)
+        for key, value in config.items():
+            setattr(self, key, value)
 
 
     def forward(self,
