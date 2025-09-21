@@ -6,7 +6,7 @@ from importlib import resources
 import torch
 import pypose as pp
 # ... (other imports)
-from .base import SMPLBase, SMPLOutputs
+from ..base import SMPLBase, SMPLOutputs
 
 
 class SMPLX(SMPLBase):
@@ -33,61 +33,30 @@ class SMPLX(SMPLBase):
             self.use_pca = False  # Override to use full pose if 45 components are requested
         self.flat_hand_mean = flat_hand_mean
 
-        # `super().__init__` will call `_load_model_data` internally
-        super().__init__(model_path)
+        super().__init__(**kwargs)
 
-
-
-    def _load_model_data(self, model_path: str):
         smplx_data = np.load(model_path, allow_pickle=True)
+        self._load_model_specific_data(smplx_data)
+        self._load_model_base_data(smplx_data, model_config='smplx.json')
 
-        # Register model parameters as buffers
-        self.register_buffer('vertices_template', torch.tensor(smplx_data['v_template'], dtype=torch.float32)) # (10475, 3)
 
-        # Faces are not used in computation but are essential for visualization
-        self.register_buffer('faces', torch.tensor(smplx_data['f'].astype(np.int64), dtype=torch.long)) # (21078, 3)
-
-        # Shape blend shapes
-        shape_blending = torch.tensor(smplx_data['shapedirs'][:, :, :self.num_betas], dtype=torch.float32)
-        self.register_buffer('shape_blending', shape_blending)   # (10475, 3, num_betas)
-
-        # Pose blend shapes
-        # Original shape is (10475, 3, 486). Reshape to (10475*3, 486)
-        pose_blending = torch.tensor(smplx_data['posedirs'], dtype=torch.float32).reshape(-1, 486).T
-        # We need ( (J-1)*9, V*3 ) for matmul, so we transpose
-        self.register_buffer('pose_blending', pose_blending) # (486, 10475*3)
-
-        # Joint regressor
-        self.register_buffer('joint_regressor', torch.tensor(smplx_data['J_regressor'], dtype=torch.float32)) # (55, 10475)
-
-        # LBS weights
-        self.register_buffer('lbs_weights', torch.tensor(smplx_data['weights'], dtype=torch.float32)) # (10475, 55)
-
-        # Kinematic tree
-        self.parent_tree = smplx_data['kintree_table']
+    def _load_model_specific_data(self, model_data: dict):
+        
 
         # Hands related parameters
         if self.flat_hand_mean:
             self.register_buffer('hand_mean_left', torch.zeros((15, 3), dtype=torch.float32)) # (15, 3)
             self.register_buffer('hand_mean_right', torch.zeros((15, 3), dtype=torch.float32)) # (15, 3)
         else:
-            self.register_buffer('hand_mean_left', torch.tensor(smplx_data['hands_meanl'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
-            self.register_buffer('hand_mean_right', torch.tensor(smplx_data['hands_meanr'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
+            self.register_buffer('hand_mean_left', torch.tensor(model_data['hands_meanl'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
+            self.register_buffer('hand_mean_right', torch.tensor(model_data['hands_meanr'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
 
-        self.register_buffer('hand_components_left', torch.tensor(smplx_data['hands_componentsl'], dtype=torch.float32)) # (45, 45)
-        self.register_buffer('hand_components_right', torch.tensor(smplx_data['hands_componentsr'], dtype=torch.float32)) # (45, 45)
+        self.register_buffer('hand_components_left', torch.tensor(model_data['hands_componentsl'], dtype=torch.float32)) # (45, 45)
+        self.register_buffer('hand_components_right', torch.tensor(model_data['hands_componentsr'], dtype=torch.float32)) # (45, 45)
 
 
         # Face related parameters
         # TODO: Implement face deformation handling
-
-
-        # load config as class attributes
-        with resources.files('better_human.smpl.config').joinpath('smplx.json').open('r') as f:
-            config = json.load(f)
-        for key, value in config.items():
-            setattr(self, key, value)
-
 
     def forward(self,
         betas: torch.Tensor,
@@ -113,9 +82,9 @@ class SMPLX(SMPLBase):
         left_hand_pose = (left_hand_pose.Log() + self.hand_mean_left).Exp()
         right_hand_pose = (right_hand_pose.Log() + self.hand_mean_right).Exp()
 
-        jaw_pose = pp.identity_SO3(batch_size, 1, device=self.device) # (B, 1, 4)
-        left_eye_pose = pp.identity_SO3(batch_size, 1, device=self.device) # (B, 1, 4)
-        right_eye_pose = pp.identity_SO3(batch_size, 1, device=self.device) # (B, 1, 4)
+        jaw_pose = pp.identity_SO3(batch_size, 1, device=self.vertices_template.device) # (B, 1, 4)
+        left_eye_pose = pp.identity_SO3(batch_size, 1, device=self.vertices_template.device) # (B, 1, 4)
+        right_eye_pose = pp.identity_SO3(batch_size, 1, device=self.vertices_template.device) # (B, 1, 4)
 
         full_pose = torch.cat([
             body_pose,

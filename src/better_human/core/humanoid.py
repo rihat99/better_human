@@ -49,9 +49,9 @@ class Humanoid(ABC, torch.nn.Module):
     #     """
     #     pass
         
-    @abstractmethod
-    def visualize(self, *args, **kwargs):
-        """
-        Provides a method for visualizing the humanoid model's current state.
-        """
-        pass
+    # @abstractmethod
+    # def visualize(self, *args, **kwargs):
+    #     """
+    #     Provides a method for visualizing the humanoid model's current state.
+    #     """
+    #     pass

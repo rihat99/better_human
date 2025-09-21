@@ -7,7 +7,7 @@ from importlib import resources
 import torch
 import pypose as pp
 
-from .base import SMPLBase, SMPLOutputs
+from ..base import SMPLBase, SMPLOutputs
 
 
 class STAR(SMPLBase):
@@ -19,51 +19,58 @@ class STAR(SMPLBase):
         self.gender = gender
 
         # `super().__init__` will call `_load_model_data` internally
-        super().__init__(model_path=model_path, **kwargs)
+        super().__init__(**kwargs)
 
-    def _load_model_data(self, model_path: str):
+        star_data = np.load(model_path, allow_pickle=True)
+        self._load_model_specific_data(star_data)
+
+    def _load_model_specific_data(self, model_data: dict):
         """
         Loads the STAR model data from a .npz file.
         """
-        star_data = np.load(model_path, allow_pickle=True)
 
-        # Register model parameters as buffers
-        self.register_buffer('vertices_template', torch.tensor(star_data['v_template'], dtype=torch.float32)) # (6890, 3)
-        
-        # Faces are not used in computation but are essential for visualization
-        self.register_buffer('faces', torch.tensor(star_data['f'].astype(np.int64), dtype=torch.long)) # (13776, 3)
-
-        # Shape blend shapes
-        shape_blending = torch.tensor(star_data['shapedirs'][:, :, :self.num_betas], dtype=torch.float32)
-        self.register_buffer('shape_blending', shape_blending)   # (6890, 3, num_betas)
-
-        # Pose blend shapes
-        # Original shape is (6890, 3, 93). Reshape to (6890*3, 93)
-        pose_blending = torch.tensor(star_data['posedirs'], dtype=torch.float32).reshape(-1, 93)
-        # We need ( (J-1)*9, V*3 ) for matmul, so we transpose
-        self.register_buffer('pose_blending', pose_blending) # (6870*3, 93)
-
-        # Joint regressor
-        self.register_buffer('joint_regressor', torch.tensor(star_data['J_regressor'], dtype=torch.float32)) # (24, 6890)
-
-        # LBS weights
-        self.register_buffer('lbs_weights', torch.tensor(star_data['weights'], dtype=torch.float32)) # (6890, 24)
-
-        # Kinematic tree
-        self.parent_tree = star_data['kintree_table']
-
-        # Define number of joints based on loaded data
-        # load config as class attributes
         with resources.files('better_human.smpl.config').joinpath('smpl.json').open('r') as f:
             config = json.load(f)
         for key, value in config.items():
             setattr(self, key, value)
 
+        with resources.files('better_human.smpl.config').joinpath(self.vertices_segmentation_type).open('r') as f:
+            self.vertices_segmentation = json.load(f)
+
+        
+        # Register model parameters as buffers
+        self.register_buffer('vertices_template', torch.tensor(model_data['v_template'], dtype=torch.float32)) # (6890, 3)
+        
+        # Faces are not used in computation but are essential for visualization
+        self.register_buffer('faces', torch.tensor(model_data['f'].astype(np.int64), dtype=torch.long)) # (13776, 3)
+
+        # Shape blend shapes
+        shape_blending = torch.tensor(model_data['shapedirs'][:, :, :self.num_betas], dtype=torch.float32)
+        self.register_buffer('shape_blending', shape_blending)   # (6890, 3, num_betas)
+
+        # Pose blend shapes
+        # Original shape is (6890, 3, 93). Reshape to (6890*3, 93)
+        pose_blending = torch.tensor(model_data['posedirs'], dtype=torch.float32).reshape(-1, 93)
+        # We need ( (J-1)*9, V*3 ) for matmul, so we transpose
+        self.register_buffer('pose_blending', pose_blending) # (6870*3, 93)
+
+        # Joint regressor
+        self.register_buffer('joint_regressor', torch.tensor(model_data['J_regressor'], dtype=torch.float32)) # (24, 6890)
+
+        # LBS weights
+        self.register_buffer('lbs_weights', torch.tensor(model_data['weights'], dtype=torch.float32)) # (6890, 24)
+
+        # Kinematic tree
+        self.parent_tree = model_data['kintree_table']
+
+        # Define number of joints based on loaded data
+        # load config as class attributes
+
     def deform_shape(self, body_pose: pp.LieTensor, neutral_vertices, betas) -> torch.Tensor:
         batch_size = body_pose.shape[0]
 
         pose_quat = body_pose.tensor()  # (B, 23, 4)
-        w_ones = torch.zeros_like(pose_quat, device=self.device, dtype=pose_quat.dtype)  # (B, 23, 4)
+        w_ones = torch.zeros_like(pose_quat, device=self.vertices_template.device, dtype=pose_quat.dtype)  # (B, 23, 4)
         w_ones[..., 3] = 1.0  # Set the last element to 1.0
         pose_quat = pose_quat - w_ones # Normalize the quaternion to have w = 0 at rest
 

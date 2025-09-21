@@ -6,7 +6,7 @@ from importlib import resources
 import torch
 import pypose as pp
 
-from .base import SMPLBase, SMPLOutputs
+from ..base import SMPLBase, SMPLOutputs
 
 
 class MANO(SMPLBase):
@@ -31,47 +31,25 @@ class MANO(SMPLBase):
 
         self.hand_side = hand_side  # 'right' or 'left'
         # `super().__init__` will call `_load_model_data` internally
-        super().__init__(model_path=model_path, **kwargs)
+        super().__init__(**kwargs)
+
+        mano_data = np.load(model_path, allow_pickle=True)
+        self._load_model_specific_data(mano_data)
+        self._load_model_base_data(mano_data, model_config='mano.json')
 
 
-    def _load_model_data(self, model_path: str):
+    def _load_model_specific_data(self, model_data):
         """
         Loads the MANO model data from a .pkl file.
         """
-        mano_data = np.load(model_path, allow_pickle=True)
-
-        # Register model parameters as buffers
-        self.register_buffer('vertices_template', torch.tensor(mano_data['vertices_template'], dtype=torch.float32)) # (778, 3)
-
-        # Faces are not used in computation but are essential for visualization
-        self.register_buffer('faces', torch.tensor(mano_data['faces'].astype(np.int64), dtype=torch.long)) # (1538, 3)
-
-        # Shape blend shapes
-        shape_blending = torch.tensor(mano_data['shape_blending'][:, :, :self.num_betas], dtype=torch.float32)
-        self.register_buffer('shape_blending', shape_blending)   # (778, 3, 10)
-
-        # Pose blend shapes
-        # Original shape is (778, 3, 135). Reshape to (778*3, 135)
-        pose_blending = torch.tensor(mano_data['pose_blending'], dtype=torch.float32).reshape(-1, 15*9).T
-        # We need ( (J-1)*9, V*3 ) for matmul, so we transpose
-        self.register_buffer('pose_blending', pose_blending) # (135, 778*3)
-
-        # Joint regressor
-        self.register_buffer('joint_regressor', torch.tensor(mano_data['joint_regressor'], dtype=torch.float32)) # (16, 778)
-
-        # LBS weights
-        self.register_buffer('lbs_weights', torch.tensor(mano_data['weights'], dtype=torch.float32)) # (778, 16)
-
-        # Kinematic tree
-        self.parent_tree = mano_data['kintree_table']
-
+        
         # Register hand related parameters
-        self.register_buffer('hands_components', torch.tensor(mano_data['hands_components'], dtype=torch.float32)) # (45, 45)
+        self.register_buffer('hands_components', torch.tensor(model_data['hands_components'], dtype=torch.float32)) # (45, 45)
         if self.flat_hand_mean:
             self.register_buffer('hands_mean', torch.zeros((15, 3), dtype=torch.float32)) # (15, 3)
         else:
-            self.register_buffer('hands_mean', torch.tensor(mano_data['hands_mean'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
-        # self.register_buffer('hands_coeffs', torch.tensor(mano_data['hands_coeffs'], dtype=torch.float32)) # (1554, 45)
+            self.register_buffer('hands_mean', torch.tensor(model_data['hands_mean'].reshape(15, 3), dtype=torch.float32)) # (15, 3)
+        # self.register_buffer('hands_coeffs', torch.tensor(model_data['hands_coeffs'], dtype=torch.float32)) # (1554, 45)
 
         # load config as class attributes
         with resources.files('better_human.smpl.config').joinpath('mano.json').open('r') as f:

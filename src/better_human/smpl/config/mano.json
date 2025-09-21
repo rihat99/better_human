@@ -2,6 +2,9 @@
   "num_joints": 16,
   "num_vertices": 778,
   "num_faces": 1538,
+
+  "vertices_segmentation_type": "mano_vert_segmentation.json",
+
   "joint_names": [
     "wrist",
     "index1",
