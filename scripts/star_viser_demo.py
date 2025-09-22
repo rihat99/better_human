@@ -12,7 +12,7 @@ import pypose as pp
 import viser
 import viser.transforms as tf
 
-from better_human.smpl.star import STAR
+from better_human.smpl import STAR
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

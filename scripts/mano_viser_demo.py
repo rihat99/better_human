@@ -12,7 +12,7 @@ import pypose as pp
 import viser
 import viser.transforms as tf
 
-from better_human.smpl.mano import MANO
+from better_human.smpl import MANO
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

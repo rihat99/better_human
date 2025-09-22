@@ -12,7 +12,7 @@ import pypose as pp
 import viser
 import viser.transforms as tf
 
-from better_human.smpl.smpl import SMPL
+from better_human.smpl import SMPL
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -23,7 +23,7 @@ def main() -> None:
 
     # Main loop. We'll read pose/shape from the GUI elements, compute the mesh,
     # and then send the updated mesh in a loop.
-    model = SMPL("models/smpl/SMPL_NEUTRAL.npz").to(device)
+    model = SMPL("models/smpl/SMPL_MALE.npz").to(device)
     gui_elements = make_gui_elements(
         server,
         num_betas=model.num_betas,
