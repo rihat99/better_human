@@ -51,7 +51,7 @@ def visualize_single(
     if show_mesh:
         server.scene.add_mesh_simple(
             name=f"{prefix}/mesh",
-            vertices=output.vertices[0].cpu().numpy(),
+            vertices=output.vertices[0].detach().cpu().numpy(),
             faces=model.faces.cpu().numpy().astype(np.int32),
             color=mesh_color,
             opacity=1.0,
@@ -60,7 +60,7 @@ def visualize_single(
         if wireframe:
             server.scene.add_mesh_simple(
                 name=f"{prefix}/mesh_opacity",
-                vertices=output.vertices[0].cpu().numpy(),
+                vertices=output.vertices[0].detach().cpu().numpy(),
                 faces=model.faces.cpu().numpy().astype(np.int32),
                 color=mesh_color,
                 opacity=0.4,
@@ -72,7 +72,7 @@ def visualize_single(
                 name=f"/smpl/joints/{i}",
                 radius=joint_radius,
                 color=joint_color,
-                position=output.joints_world.tensor()[0, i, :3].cpu().numpy()
+                position=output.joints_world.tensor()[0, i, :3].detach().cpu().numpy()
             )
 
 
@@ -101,20 +101,20 @@ class SMPLSequenceVisualizer:
 
         self.mesh_handle = self.server.scene.add_mesh_skinned(
             name=f"{self.prefix}/mesh",
-            vertices=neutral_vertices[0].cpu().numpy(),
-            faces=self.model.faces.cpu().numpy().astype(np.int32),
+            vertices=neutral_vertices[0].detach().cpu().numpy(),
+            faces=self.model.faces.detach().cpu().numpy().astype(np.int32),
             bone_wxyzs=tf.SO3.identity(batch_axes=(model.num_joints,)).wxyz,
-            bone_positions=neutral_joints[0].cpu().numpy(),
-            skin_weights=self.model.lbs_weights.cpu().numpy(),
+            bone_positions=neutral_joints[0].detach().cpu().numpy(),
+            skin_weights=self.model.lbs_weights.detach().cpu().numpy(),
             color=mesh_color,
             opacity=1.0,
             wireframe=wireframe,
         )
 
-    def update(self, output: SMPLOutputs):
+    def update(self, joints_world: pp.LieTensor):
         
-        wxyz = xyzw_to_wxyz(output.joints_world.tensor()[0, :, 3:7])
+        wxyz = xyzw_to_wxyz(joints_world.tensor()[:, 3:7])
 
         for i in range(self.model.num_joints):
-            self.mesh_handle.bones[i].wxyz = wxyz[i].cpu().numpy()
-            self.mesh_handle.bones[i].position = output.joints_world.tensor()[0, i, :3].cpu().numpy()
+            self.mesh_handle.bones[i].wxyz = wxyz[i].detach().cpu().numpy()
+            self.mesh_handle.bones[i].position = joints_world.tensor()[i, :3].detach().cpu().numpy()
