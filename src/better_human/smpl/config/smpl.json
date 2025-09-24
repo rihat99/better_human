@@ -3,6 +3,10 @@
   "num_vertices": 6890,
   "num_faces": 13776,
 
+  "nj": 24,
+  "nq": 99,
+  "nv": 75,
+
   "vertices_segmentation_type": "smpl_vert_segmentation.json",
 
   "joint_names": [

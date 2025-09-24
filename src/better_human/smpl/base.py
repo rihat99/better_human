@@ -1,6 +1,5 @@
 import torch
 import pypose as pp
-import viser
 import numpy as np
 import json
 from importlib import resources
@@ -11,7 +10,7 @@ from ..core.humanoid import Humanoid
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class SMPLOutputs:
     vertices: torch.Tensor  # (B, V, 3)
     joints_world: pp.LieTensor  # (B, J, 7)
@@ -26,8 +25,10 @@ class SMPLBase(Humanoid):
     specific to the Skinned Multi-Person Linear (SMPL) model family,
     such as shape (betas) and pose (pose) parameters.
     """
-    def __init__(self):
+    def __init__(self, use_shape_blending=True):
         super().__init__()
+
+        self.use_shape_blending = use_shape_blending
 
         # Define core SMPL parameters
         # These would be initialized based on the loaded model data
@@ -87,17 +88,24 @@ class SMPLBase(Humanoid):
         self.frame_names = []
         self.frames_vertex_ids = []
 
-    def forward(self, betas: torch.Tensor, body_pose: pp.LieTensor, global_transform: pp.LieTensor, **kwargs) -> dict:
+    def forward(self, betas: torch.Tensor, q: torch.Tensor, **kwargs) -> dict:
         """
         Runs the full forward pass for the SMPL model.
 
         """
+        
+        # 0. Parse input parameters
+        global_transform = pp.SE3(q[:, :7])
+        body_pose = pp.SO3(q[:, 7:].view(-1, self.num_joints-1, 4)) # (B, J-1, 4)
 
         # 1. Shape deformation and joint locations
         neutral_vertices, neutral_joints = self.forward_shape(betas)
 
         # 2. Pose deformation
-        vertices_blended = self.deform_shape(body_pose, neutral_vertices, betas) # (B, 6890, 3)
+        if self.use_shape_blending:
+            vertices_blended = self.deform_shape(body_pose, neutral_vertices, betas) # (B, 6890, 3)
+        else:
+            vertices_blended = neutral_vertices # (B, 6890, 3)
 
         # 3. Compute global joint transformations
         world_transforms, parent_transforms = self.forward_skeleton(global_transform, body_pose, neutral_joints)
@@ -137,12 +145,16 @@ class SMPLBase(Humanoid):
         parent_transforms[:, 0, :3, 3] += neutral_joints[:, 0]  # Root joint translation
         parent_transforms[:, 1:, :3, 3] = neutral_joints[:, 1:] - neutral_joints[:, self.parent_tree[0, 1:]]  # Relative translations
 
-        world_transforms = parent_transforms.clone()
+        # world_transforms = parent_transforms.clone()
+        world_transforms = [parent_transforms[:, 0]]
 
         # Iterate through the kinematic tree to compute the global transformations
         for i in range(1, self.num_joints):
             parent_idx = self.parent_tree[0, i]
-            world_transforms[:, i] = torch.matmul(world_transforms[:, parent_idx], parent_transforms[:, i])
+            # world_transforms[:, i] = torch.matmul(world_transforms[:, parent_idx], parent_transforms[:, i])
+            world_transforms.append(world_transforms[parent_idx] @ parent_transforms[:, i])
+
+        world_transforms = torch.stack(world_transforms, dim=1)  # (B, J, 4, 4)
 
         return world_transforms, parent_transforms
 
@@ -189,17 +201,37 @@ class SMPLBase(Humanoid):
         Returns:
             torch.Tensor: The posed vertices after LBS (B, V, 3).
         """
-        batch_size = vertices.shape[0]
+        # batch_size = vertices.shape[0]
 
-        vertices_delta = torch.ones((batch_size, self.num_vertices, self.num_joints, 4), device=self.vertices_template.device) # (B, V, J, 4)
-        vertices_delta[:, :, :, :3] = vertices[:, :, None, :] - neutral_joints[:, None, :, :]  # (B, V, J, 4)
+        # vertices_delta = torch.ones((batch_size, self.num_vertices, self.num_joints, 4), device=self.vertices_template.device) # (B, V, J, 4)
+        # vertices_delta[:, :, :, :3] = vertices[:, :, None, :] - neutral_joints[:, None, :, :]  # (B, V, J, 4)
 
-        vertices_posed = torch.einsum(
-            'bjxy, vj, bvjy -> bvx', 
-            world_transforms[:, :, :3, :],
-            self.lbs_weights,
-            vertices_delta
-        ) # (B, V, 3)
+        # vertices_posed = torch.einsum(
+        #     'bjxy, vj, bvjy -> bvx', 
+        #     world_transforms[:, :, :3, :],
+        #     self.lbs_weights,
+        #     vertices_delta
+        # ) # (B, V, 3)
+
+        adjusted_transform_matrices = world_transforms.clone()  # (B, 24, 4, 4)
+        neutral_joints_homogen = torch.nn.functional.pad(
+            neutral_joints, (0, 1), value=0.0)  # (B, 24, 4)
+
+        # transform_matrices[:, :, :4, 3] -= (transform_matrices @ neutral_joints_homogen.unsqueeze(-1)).squeeze(-1)  # Adjust translation to match neutral joints
+        adjusted_transform_matrices[:, :, :4, 3] = \
+            world_transforms[:, :, :4, 3] - \
+                (world_transforms[:, :, :4, :3] @ neutral_joints_homogen[:, :, :3].unsqueeze(-1)).squeeze(-1)  # Adjust translation to match neutral joints
+
+        # Apply LBS to vertices
+        T = torch.einsum(
+            'ij,bjk->bik', 
+            self.lbs_weights, 
+            adjusted_transform_matrices.reshape(-1, 24, 16)
+            ).reshape(-1, 6890, 4, 4)  # (B, 6890, 4, 4)
+
+        vertices_homogen = torch.nn.functional.pad(vertices, (0, 1), value=1.0).unsqueeze(-1)  # (B, 6890, 4, 1)
+        vertices_homogen = T @ vertices_homogen # (B, 6890, 4, 1)
+        vertices_posed = vertices_homogen[:, :, :3, 0]  # Convert back to 3D coordinates
 
         return vertices_posed
 

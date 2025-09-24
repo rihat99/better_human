@@ -29,3 +29,20 @@ class SMPL(SMPLBase):
         """
 
         pass
+
+    def classic_input(
+        self,
+        body_pose: torch.Tensor,
+        translation: torch.Tensor,
+        global_orient: torch.Tensor,
+    ):
+
+        shape = translation.shape[:-1]
+
+        q = torch.zeros((*shape, self.nq), device=self.vertices_template.device)
+
+        q[..., :3] = translation
+        q[..., 3:7] = pp.so3(global_orient).Exp().tensor()
+        q[..., 7:] = pp.so3(body_pose.reshape(*shape, self.num_joints-1, 3)).Exp().tensor().reshape(*shape, (self.num_joints-1)*4)
+
+        return q
