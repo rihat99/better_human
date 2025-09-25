@@ -72,6 +72,7 @@ class SMPLBase(Humanoid):
 
         # Kinematic tree
         self.parent_tree = model_data['kintree_table']
+        
 
 
     def _load_model_specific_data(self, model_path: str):
@@ -87,6 +88,30 @@ class SMPLBase(Humanoid):
         self.joint_names = []
         self.frame_names = []
         self.frames_vertex_ids = []
+
+
+    def _compute_static_variables(self):
+        self.tree = [[]]
+        for i in range(1, self.num_joints):
+            self.tree.append(self.tree[int(self.parent_tree[0, i])].copy())
+            self.tree[-1].append(int(self.parent_tree[0, i]))
+
+        self.joint_q_idx = [[0, 7]]  # Free-flyer joint
+        self.joint_v_idx = [[0, 6]]  # Free-flyer joint
+        for i in range(1, self.num_joints):
+            self.joint_q_idx.append([7 + (i-1)*4, 7 + i*4])  # Spherical joints
+            self.joint_v_idx.append([6 + (i-1)*3, 6 + i*3])  # Spherical joints
+
+        jacobian_mapping = torch.zeros(self.nj, self.nv, dtype=torch.float32)
+
+        for joint_id in range(self.nj):
+            jacobian_mapping[joint_id, self.joint_v_idx[joint_id][0]:self.joint_v_idx[joint_id][1]] = 1.0
+
+            for support_id in self.tree[joint_id]:
+                jacobian_mapping[joint_id, self.joint_v_idx[support_id][0]:self.joint_v_idx[support_id][1]] = 1.0
+
+        self.register_buffer('J_mapping', jacobian_mapping)  # (J, nv)
+
 
     def forward(self, betas: torch.Tensor, q: torch.Tensor, **kwargs) -> dict:
         """
@@ -142,7 +167,7 @@ class SMPLBase(Humanoid):
 
         parent_transforms[:, 1:, :3, :3] = body_pose.matrix()
 
-        parent_transforms[:, 0, :3, 3] += neutral_joints[:, 0]  # Root joint translation
+        # parent_transforms[:, 0, :3, 3] += neutral_joints[:, 0]  # Root joint translation
         parent_transforms[:, 1:, :3, 3] = neutral_joints[:, 1:] - neutral_joints[:, self.parent_tree[0, 1:]]  # Relative translations
 
         # world_transforms = parent_transforms.clone()
