@@ -90,12 +90,14 @@ class SMPLSequenceVisualizer:
             joint_color: tuple = (255, 0, 0),
             joint_radius: float = 0.02,
             wireframe=True,
+            opacity=1.0,
             ):
         
         self.server = server
         self.model = model
         self.betas = betas
         self.prefix = prefix
+        self.show_joints = show_joints
 
         neutral_vertices, neutral_joints = self.model.forward_shape(betas)
 
@@ -107,9 +109,22 @@ class SMPLSequenceVisualizer:
             bone_positions=neutral_joints[0].detach().cpu().numpy(),
             skin_weights=self.model.lbs_weights.detach().cpu().numpy(),
             color=mesh_color,
-            opacity=1.0,
+            opacity=opacity,
             wireframe=wireframe,
         )
+
+        if show_joints:
+            self.joint_handles = []
+            for i in range(model.num_joints):
+                joint_handle = self.server.scene.add_icosphere(
+                    name=f"{self.prefix}/joints/{i}",
+                    radius=joint_radius,
+                    color=joint_color,
+                    position=neutral_joints[0, i].detach().cpu().numpy(),
+                    cast_shadow=False,
+                    receive_shadow=False,
+                )
+                self.joint_handles.append(joint_handle)
 
     def update(self, joints_world: pp.LieTensor):
         
@@ -118,3 +133,8 @@ class SMPLSequenceVisualizer:
         for i in range(self.model.num_joints):
             self.mesh_handle.bones[i].wxyz = wxyz[i].detach().cpu().numpy()
             self.mesh_handle.bones[i].position = joints_world.tensor()[i, :3].detach().cpu().numpy()
+
+            if self.show_joints:
+                self.joint_handles[i].position = joints_world.tensor()[i, :3].detach().cpu().numpy()
+
+

@@ -3,6 +3,8 @@ import pypose as pp
 import numpy as np
 
 from .base import SMPLBase, SMPLOutputs
+from .mass import compute_Mass_Inertia
+from .kinematics import *
 from ..utils.lie import *
 
 
@@ -44,6 +46,9 @@ class SMPLSequence:
         self.vertices = outputs.vertices  # (B, T, V, 3)
         self.joints_world = outputs.joints_world  # (B, T, J, 7)
         self.joints_parent = outputs.joints_parent  # (B, T, J, 7)
+
+        self.adj = SE3_Adj(self.joints_world.tensor())  # (B, T, J, 6, 6)
+        self.adj_inv = SE3_Adj(self.joints_world.Inv().tensor())  # (B, T, J, 6, 6)
 
         return outputs
     
@@ -111,44 +116,30 @@ class SMPLSequence:
 
         self.a = torch.cat([acc_ff, acc_sph.reshape(self.batch_size, self.seq_length, -1)], dim=-1)  # (B, T, nv)
 
-    
-    def compute_Jacobian(self):
-
-        J_ = SE3_Adj(self.joints_world.tensor()) # (B, T, J, 6, 6)
-
-        # j = 0 → keep all 6 columns
-        J0 = J_[..., 0, :, :]                     # (B, T, 6, 6)
-
-        # j > 0 → keep columns 3:6
-        Jrest = J_[..., 1:, :, 3:6]               # (B, T, J-1, 6, 3)
-
-        # Pack columns as [J0 | J1..J_{J-1}] → (B, T, 6, 6 + 3*(J-1))
-        Jrest = Jrest.permute(0, 1, 3, 2, 4).reshape(self.batch_size, self.seq_length, 6, -1)
-        self.J_full = torch.cat((J0, Jrest), dim=-1) # (B, T, 6, nv)
-
-    def compute_Jacobian_derivative(self):
-
-        pass
+    def compute_joints_Jacobian(self):
+        self.J = compute_Jacobian(self.model, self.adj)  # (B, T, 6, nv)
 
     def get_joints_Jacobian(self, reference_frame:str = "WORLD"):
+        return get_joints_Jacobian(self.J, self.joints_world, self.adj_inv, reference_frame=reference_frame)  # (B, T, J, 6, nv)
 
-        assert reference_frame in ["WORLD", "LOCAL", "LOCAL_WORLD_ALIGNED"]
+    def compute_joints_Jacobian_derivative(self):
+        J_local = self.get_joints_Jacobian(reference_frame="LOCAL")  # (B, T, J, 6, nv)
+        joint_local_velocities = pp.se3(torch.einsum("btjiv,btv->btji", J_local, self.v))
+        self.dJ = compute_Jacobian_derivative(self.model, self.adj, joint_local_velocities)  # (B, T, J, 6, nv)
 
-        J = self.J_full.unsqueeze(2).repeat(1, 1, self.model.nj, 1, 1)  # (B, T, J, 6, nv)
-        J = J * self.model.J_mapping.view(1, 1, self.model.nj, 1, self.model.nv)  # (B, T, J, 6, nv)
+    def get_joints_Jacobian_derivative(self, reference_frame:str = "WORLD"):
+        return get_joints_Jacobian_derivative(self.J, self.dJ, self.joints_world, self.adj_inv, 
+                                             pp.se3(torch.einsum("btjiv,btv->btji", self.J, self.v)),
+                                             reference_frame=reference_frame)  # (B, T, J, 6, nv)
 
-        if reference_frame == "WORLD":
-            return J  # (B, T, J, 6, nv)
-        
-        elif reference_frame == "LOCAL":
-            adj = SE3_Adj(self.joints_world.Inv())  # (B, T, J, 6, 6)
-            return adj @ J
-        
-        else:  # LOCAL_WORLD_ALIGNED
-            H = torch.zeros(self.batch_size, self.seq_length, self.model.nj, 6, 6, device=J.device, dtype=J.dtype)
-            H[..., :3, :3] = torch.eye(3, device=J.device)
-            H[..., 3:, 3:] = torch.eye(3, device=J.device)
-            H[..., :3, 3:] = pp.vec2skew(-self.joints_world.translation())
+    def compute_InertiaMatrix(self, density_system: str = "Custom") -> dict:
+        mass_data = compute_Mass_Inertia(self.model, self.betas, density_system=density_system)
 
-            return H @ J
+        self.inertia_matrix = torch.zeros((self.batch_size, self.model.nj, 6, 6), device=self.betas.device)
 
+        skew_com = pp.vec2skew(mass_data["com"])  # (B, J, 3, 3)
+
+        self.inertia_matrix[:, :, :3, :3] = mass_data["mass"][..., None, None] * torch.eye(3, device=self.betas.device, dtype=self.betas.dtype)     # (B, J, 3, 3)
+        self.inertia_matrix[:, :, :3, 3:] = - mass_data["mass"].unsqueeze(-1).unsqueeze(-1) * skew_com  # (B, J, 3, 3)
+        self.inertia_matrix[:, :, 3:, :3] = mass_data["mass"].unsqueeze(-1).unsqueeze(-1) * skew_com  # (B, J, 3, 3)
+        self.inertia_matrix[:, :, 3:, 3:] = mass_data["inertia"]

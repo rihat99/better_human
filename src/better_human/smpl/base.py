@@ -91,10 +91,28 @@ class SMPLBase(Humanoid):
 
 
     def _compute_static_variables(self):
+
+        self.ee_joints = set(self.parent_tree[1].tolist()) - set(self.parent_tree[0].tolist())
+        self.kinematic_order = [
+            0, 
+            1, 4, 7, 10, 
+            2, 5, 8, 11, 
+            3, 6, 9, 
+            12, 15, 
+            13, 16, 18, 20, 22, 
+            14, 17, 19, 21, 23,
+        ]
+
         self.tree = [[]]
+        # self.kinematic_order = [0]  # Root joint first
         for i in range(1, self.num_joints):
             self.tree.append(self.tree[int(self.parent_tree[0, i])].copy())
             self.tree[-1].append(int(self.parent_tree[0, i]))
+
+            # if i in self.ee_joints:
+            #     self.kinematic_order.extend(self.tree[-1][1:])
+            #     self.kinematic_order.append(i)
+        
 
         self.joint_q_idx = [[0, 7]]  # Free-flyer joint
         self.joint_v_idx = [[0, 6]]  # Free-flyer joint

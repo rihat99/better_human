@@ -35,3 +35,32 @@ def LieDifference(q1: pp.LieTensor, q2: pp.LieTensor, frame: str="LOCAL") -> pp.
         return (q2 * q1.Inv()).Log()
     else:  # LOCAL
         return (q1.Inv() * q2).Log()
+    
+
+def SO3_2_SE3(q: pp.LieTensor) -> pp.LieTensor:
+    
+    if q.ltype == pp.SE3_type:
+        return q
+
+    elif q.ltype == pp.SO3_type:
+        q_ = pp.identity_SE3(*q.shape[:-1], device=q.device)
+        q_[..., 3:] = q
+        return q_
+    
+def so3_2_se3(x: pp.LieTensor) -> pp.LieTensor:
+    
+    if x.ltype == pp.se3_type:
+        return x
+
+    elif x.ltype == pp.so3_type:
+        x_ = pp.identity_se3(*x.shape[:-1], device=x.device)
+        x_[..., 3:] = x
+        return x_
+    
+def se3_adj_dual(x):
+    adj_6x6 = torch.zeros((x.shape[:-1]+(6, 6)), device=x.device, dtype=x.dtype, requires_grad=False)
+    Phi = pp.vec2skew(x[..., 3:])
+    adj_6x6[..., :3, :3] = Phi
+    adj_6x6[..., 3:, :3] = pp.vec2skew(x[..., :3])
+    adj_6x6[..., 3:, 3:] = Phi
+    return adj_6x6

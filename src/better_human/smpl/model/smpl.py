@@ -29,9 +29,13 @@ class SMPL(SMPLBase):
         Loads the SMPL model data from a .pkl file.
         """
 
-        pass
+        path = resources.files('better_human.smpl.config').joinpath("smpl_3d_segmentation.npy")
+        self.segmentation_3d = np.load(path, allow_pickle=True).item()
 
-    def classic_input(
+        with resources.files('better_human.smpl.config').joinpath("body_densities.json").open('r') as f:
+            self.body_densities = json.load(f)
+
+    def from_classic(
         self,
         betas: torch.Tensor,
         body_pose: torch.Tensor,
@@ -55,3 +59,24 @@ class SMPL(SMPLBase):
         q[..., 7:] = pp.so3(body_pose.reshape(*shape, self.num_joints-1, 3)).Exp().tensor().reshape(*shape, (self.num_joints-1)*4)
 
         return q
+    
+    def to_classic(self, betas: torch.Tensor, q: torch.Tensor):
+        
+        _, neutral_joints = self.forward_shape(betas)
+        root_offset = neutral_joints[:, 0, :3]  # (B, 3)
+
+        shape = q.shape[:-1]
+
+        if len(shape) > 1:
+            root_offset = root_offset.unsqueeze(1)
+
+        translation = q[..., :3] - root_offset
+        global_orient = pp.SO3(q[..., 3:7]).Log().tensor()
+        body_pose = pp.SO3(q[..., 7:].reshape(*shape, self.num_joints-1, 4)).Log().tensor().reshape(*shape, (self.num_joints-1)*3)
+    
+        return {
+            'betas': betas,
+            'body_pose': body_pose,
+            'translation': translation,
+            'global_orient': global_orient,
+        }
